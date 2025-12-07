@@ -5,7 +5,6 @@ export default (policyContext: any, config: any, { strapi }: any) => {
     return false;
   }
 
-  // Only editors can publish articles
   return user.role?.type === 'editor';
 };
 

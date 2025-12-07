@@ -5,12 +5,9 @@ export default (policyContext: any, config: any, { strapi }: any) => {
     return false;
   }
 
-  // Editors can delete any article
   if (user.role?.type === 'editor') {
     return true;
   }
-
-  // Users can only delete their own articles
   const articleId = policyContext.params.id;
   
   return strapi.entityService

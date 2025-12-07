@@ -1,6 +1,5 @@
 export default {
   routes: [
-    // Standard CRUD routes
     {
       method: 'GET',
       path: '/categories',

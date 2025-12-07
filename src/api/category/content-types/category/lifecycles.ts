@@ -1,9 +1,5 @@
-// @ts-ignore
 import slugify from 'slugify';
 
-/**
- * Generate slug from name
- */
 function generateSlug(name: string): string {
   return slugify(name, {
     lower: true,
@@ -16,7 +12,6 @@ export default {
   async beforeCreate(event: any) {
     const { data } = event.params;
 
-    // Auto-generate slug from name if not provided
     if (data.name && !data.slug) {
       data.slug = generateSlug(data.name);
     }
@@ -25,7 +20,6 @@ export default {
   async beforeUpdate(event: any) {
     const { data, where } = event.params;
 
-    // Auto-generate slug from name if name changed
     if (data.name) {
       const existingCategory: any = await strapi.entityService.findOne(
         'api::category.category' as any,
