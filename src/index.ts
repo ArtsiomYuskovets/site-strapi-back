@@ -16,5 +16,16 @@ export default {
    * This gives you an opportunity to set up your data model,
    * run jobs, or perform some special logic.
    */
-  bootstrap(/* { strapi }: { strapi: Core.Strapi } */) {},
+  async bootstrap({ strapi }) {
+    // Запуск seed при старте (только если установлена переменная окружения)
+    if (process.env.RUN_SEED === 'true') {
+      try {
+        const seedModule = require('../../database/seeds/seed.js');
+        await seedModule({ strapi });
+        strapi.log.info('Seed completed successfully!');
+      } catch (error) {
+        strapi.log.error('Seed error:', error);
+      }
+    }
+  },
 };
