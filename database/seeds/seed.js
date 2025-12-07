@@ -1,15 +1,8 @@
 'use strict';
 
-/**
- * Seed script for creating initial data
- * Run with: strapi ts:execute database/seeds/seed.js
- */
-
 module.exports = async ({ strapi }) => {
   try {
     strapi.log.info('Starting seed...');
-
-    // Create categories
     const categories = [
       { name: 'Технологии', slug: 'technology' },
       { name: 'Политика', slug: 'politics' },
@@ -35,66 +28,122 @@ module.exports = async ({ strapi }) => {
       }
     }
 
-    // Get roles
-    const roleService = strapi.plugin('users-permissions').service('role');
-    const roles = await roleService.find();
-    
-    // Find editor role (or authenticated if editor doesn't exist)
-    let editorRole = roles.find(r => r.type === 'editor') || roles.find(r => r.type === 'authenticated');
-    let authenticatedRole = roles.find(r => r.type === 'authenticated');
-    
+    const roles = await strapi.entityService.findMany('plugin::users-permissions.role', {});
+    let editorRole = roles.find(r => r.type === 'editor');
     if (!editorRole) {
-      strapi.log.warn('Editor role not found, using authenticated role');
-      editorRole = authenticatedRole;
+      strapi.log.info('Creating editor role...');
+      try {
+        editorRole = await strapi.entityService.create('plugin::users-permissions.role', {
+          data: {
+            name: 'Editor',
+            type: 'editor',
+            description: 'Editor role with full article management permissions',
+          },
+        });
+        strapi.log.info('Editor role created successfully');
+      } catch (error) {
+        strapi.log.warn(`Could not create editor role: ${error.message}. Using authenticated role instead.`);
+        editorRole = roles.find(r => r.type === 'authenticated');
+        if (!editorRole) {
+          throw new Error('Could not create editor role and authenticated role not found');
+        }
+      }
+    } else {
+      strapi.log.info('Editor role already exists');
     }
     
+    let authenticatedRole = roles.find(r => r.type === 'authenticated');
     if (!authenticatedRole) {
       strapi.log.error('Authenticated role not found!');
       throw new Error('Authenticated role not found');
     }
 
-    // Create users
     const usersService = strapi.plugin('users-permissions').service('user');
-    
-    // Create editor user
-    let editorUser = await usersService.fetchAll({
-      filters: { email: 'editor@example.com' },
-    });
-
-    if (editorUser.length === 0) {
-      editorUser = await usersService.add({
-        username: 'editor',
-        email: 'editor@example.com',
-        password: 'Editor123!',
-        confirmed: true,
-        role: editorRole.id,
+    const createOrUpdateUser = async (userData, role) => {
+      const existing = await usersService.fetchAll({
+        filters: { email: userData.email },
       });
-      strapi.log.info('Created editor user: editor@example.com');
-    } else {
-      editorUser = editorUser[0];
-      strapi.log.info('Editor user already exists');
-    }
 
-    // Create authenticated user
-    let authUser = await usersService.fetchAll({
-      filters: { email: 'user@example.com' },
-    });
+      if (existing.length === 0) {
+        try {
+          const user = await usersService.add({
+            username: userData.username,
+            email: userData.email,
+            password: userData.password,
+            confirmed: true,
+            blocked: false,
+          });
+          
+          if (role && role.id) {
+            await strapi.entityService.update('plugin::users-permissions.user', user.id, {
+              data: {
+                role: role.id,
+              },
+            });
+          }
+          
+          const createdUser = await strapi.entityService.findOne('plugin::users-permissions.user', user.id, {
+            populate: ['role'],
+          });
+          strapi.log.info(`Created user: ${userData.email}, id: ${createdUser.id}, role: ${createdUser.role?.type || 'none'}, confirmed: ${createdUser.confirmed}, blocked: ${createdUser.blocked}`);
+          return createdUser;
+        } catch (error) {
+          strapi.log.error(`Error creating user ${userData.email}:`, error);
+          throw error;
+        }
+      } else {
+        const existingUser = existing[0];
+        strapi.log.info(`User ${userData.email} already exists, recreating...`);
+        
+        try {
+          await strapi.entityService.delete('plugin::users-permissions.user', existingUser.id);
+          strapi.log.info(`Deleted existing user: ${userData.email}`);
+          const user = await usersService.add({
+            username: userData.username,
+            email: userData.email,
+            password: userData.password,
+            confirmed: true,
+            blocked: false,
+          });
+          
+          if (role && role.id) {
+            await strapi.entityService.update('plugin::users-permissions.user', user.id, {
+              data: {
+                role: role.id,
+              },
+            });
+          }
+          
+          const recreatedUser = await strapi.entityService.findOne('plugin::users-permissions.user', user.id, {
+            populate: ['role'],
+          });
+          strapi.log.info(`Recreated user: ${userData.email}, id: ${recreatedUser.id}, role: ${recreatedUser.role?.type || 'none'}, confirmed: ${recreatedUser.confirmed}, blocked: ${recreatedUser.blocked}`);
+          return recreatedUser;
+        } catch (error) {
+          strapi.log.error(`Error recreating user ${userData.email}:`, error);
+          throw error;
+        }
+      }
+    };
 
-    if (authUser.length === 0) {
-      authUser = await usersService.add({
-        username: 'user',
-        email: 'user@example.com',
-        password: 'User123!',
-        confirmed: true,
-        role: authenticatedRole.id,
-      });
-      strapi.log.info('Created authenticated user: user@example.com');
-    } else {
-      authUser = authUser[0];
-      strapi.log.info('Authenticated user already exists');
-    }
+    let editorUser = await createOrUpdateUser({
+      username: 'editor',
+      email: 'editor@example.com',
+      password: 'Editor123!',
+    }, editorRole);
 
-    // Create articles
+    let editorUser2 = await createOrUpdateUser({
+      username: 'editor2',
+      email: 'editor2@example.com',
+      password: 'Editor123!',
+    }, editorRole);
+
+    let authUser = await createOrUpdateUser({
+      username: 'user',
+      email: 'user@example.com',
+      password: 'User123!',
+    }, authenticatedRole);
+
     const articles = [
       {
         title: 'Новые технологии в веб-разработке',
