@@ -1,6 +1,5 @@
 export default {
   routes: [
-    // Custom routes with specific paths must come BEFORE parameterized routes
     {
       method: 'GET',
       path: '/articles/featured',
@@ -10,7 +9,6 @@ export default {
         middlewares: [],
       },
     },
-    // Standard CRUD routes - must be explicitly defined when custom routes file exists
     {
       method: 'GET',
       path: '/articles',
@@ -56,7 +54,6 @@ export default {
         middlewares: [],
       },
     },
-    // Custom routes with parameters
     {
       method: 'POST',
       path: '/articles/:id/publish',
