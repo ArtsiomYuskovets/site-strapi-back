@@ -63,17 +63,68 @@ export default {
 
   async afterCreate(event: any) {
     const { result } = event;
+    const user = event.state?.user || null;
+    
     strapi.log.info(`Article created: ${result.id} - ${result.title}`);
+    
+    if (strapi.service('api::audit-log.audit-log') && user) {
+      try {
+        await strapi.service('api::audit-log.audit-log').logAction({
+          action: 'create',
+          entityType: 'article',
+          entityId: result.id,
+          entityTitle: result.title,
+          user,
+          ctx: event.state?.ctx,
+        });
+      } catch (err) {
+        strapi.log.error('[Article Lifecycle] Error logging create action:', err);
+      }
+    }
   },
 
   async afterUpdate(event: any) {
     const { result } = event;
+    const user = event.state?.user || null;
+    
     strapi.log.info(`Article updated: ${result.id} - ${result.title}`);
+    
+    if (strapi.service('api::audit-log.audit-log') && user) {
+      try {
+        await strapi.service('api::audit-log.audit-log').logAction({
+          action: 'update',
+          entityType: 'article',
+          entityId: result.id,
+          entityTitle: result.title,
+          user,
+          ctx: event.state?.ctx,
+        });
+      } catch (err) {
+        strapi.log.error('[Article Lifecycle] Error logging update action:', err);
+      }
+    }
   },
 
   async afterDelete(event: any) {
     const { result } = event;
+    const user = event.state?.user || null;
+    
     strapi.log.info(`Article deleted: ${result.id} - ${result.title}`);
+    
+    if (strapi.service('api::audit-log.audit-log') && user) {
+      try {
+        await strapi.service('api::audit-log.audit-log').logAction({
+          action: 'delete',
+          entityType: 'article',
+          entityId: result.id,
+          entityTitle: result.title,
+          user,
+          ctx: event.state?.ctx,
+        });
+      } catch (err) {
+        strapi.log.error('[Article Lifecycle] Error logging delete action:', err);
+      }
+    }
   },
 };
 

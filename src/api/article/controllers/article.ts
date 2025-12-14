@@ -321,6 +321,21 @@ export default factories.createCoreController('api::article.article' as any, ({ 
 
     strapi.log.info(`Article created by user ${user.id}`);
 
+    if (strapi.service('api::audit-log.audit-log')) {
+      try {
+        await strapi.service('api::audit-log.audit-log').logAction({
+          action: 'create',
+          entityType: 'article',
+          entityId: entity.id,
+          entityTitle: entity.title,
+          user,
+          ctx,
+        });
+      } catch (err) {
+        strapi.log.error('[Article Controller] Error logging create action:', err);
+      }
+    }
+
     const sanitizedEntity = await this.sanitizeOutput(entity, ctx);
     return this.transformResponse(sanitizedEntity);
   },
@@ -370,6 +385,21 @@ export default factories.createCoreController('api::article.article' as any, ({ 
     }
 
     strapi.log.info(`Article ${id} updated by user ${user.id}`);
+
+    if (strapi.service('api::audit-log.audit-log')) {
+      try {
+        await strapi.service('api::audit-log.audit-log').logAction({
+          action: 'update',
+          entityType: 'article',
+          entityId: id,
+          entityTitle: entity.title,
+          user,
+          ctx,
+        });
+      } catch (err) {
+        strapi.log.error('[Article Controller] Error logging update action:', err);
+      }
+    }
 
     const sanitizedEntity = await this.sanitizeOutput(entity, ctx);
     return this.transformResponse(sanitizedEntity);
@@ -442,6 +472,21 @@ export default factories.createCoreController('api::article.article' as any, ({ 
 
       strapi.log.info(`Article ${id} (documentId: ${documentId}) published by user ${user.id}`);
 
+      if (strapi.service('api::audit-log.audit-log')) {
+        try {
+          await strapi.service('api::audit-log.audit-log').logAction({
+            action: 'publish',
+            entityType: 'article',
+            entityId: id,
+            entityTitle: updatedArticle.title,
+            user,
+            ctx,
+          });
+        } catch (err) {
+          strapi.log.error('[Article Controller] Error logging publish action:', err);
+        }
+      }
+
       const sanitizedEntity = await this.sanitizeOutput(updatedArticle, ctx);
       return this.transformResponse(sanitizedEntity);
     } catch (err) {
@@ -466,18 +511,11 @@ export default factories.createCoreController('api::article.article' as any, ({ 
 
       const newViews = (article.views || 0) + 1;
 
-      // Используем прямой SQL запрос для обновления только views
-      // В SQL мы явно сохраняем текущее значение updated_at (updated_at = updated_at)
-      // Это предотвращает автоматическое обновление updated_at триггерами БД или Strapi
       const metadata = strapi.db.metadata.get('api::article.article');
       const tableName = metadata.tableName;
       
-      // Получаем Knex connection из Strapi
       const knex = strapi.db.connection;
       
-      // Выполняем raw SQL запрос, который обновляет только views
-      // В SQL мы явно сохраняем текущее значение updated_at (updated_at = updated_at)
-      // Это предотвращает автоматическое обновление updated_at триггерами БД или Strapi
       try {
         await knex.raw(
           `UPDATE ?? SET views = ?, updated_at = updated_at WHERE id = ?`,
@@ -492,7 +530,6 @@ export default factories.createCoreController('api::article.article' as any, ({ 
           data: { views: newViews },
           publicationState: 'live',
         });
-        // Восстанавливаем updatedAt
         await knex(tableName).where({ id }).update({ updated_at: currentUpdatedAt });
       }
 
@@ -531,9 +568,26 @@ export default factories.createCoreController('api::article.article' as any, ({ 
         return ctx.forbidden('You can only delete your own articles or be an editor');
       }
 
+      const articleTitle = article.title;
+
       const deletedArticle = await strapi.entityService.delete('api::article.article' as any, id);
 
       strapi.log.info(`Article ${id} deleted by user ${user.id}`);
+
+      if (strapi.service('api::audit-log.audit-log')) {
+        try {
+          await strapi.service('api::audit-log.audit-log').logAction({
+            action: 'delete',
+            entityType: 'article',
+            entityId: id,
+            entityTitle: articleTitle,
+            user,
+            ctx,
+          });
+        } catch (err) {
+          strapi.log.error('[Article Controller] Error logging delete action:', err);
+        }
+      }
 
       const sanitizedEntity = await this.sanitizeOutput(deletedArticle, ctx);
       return this.transformResponse(sanitizedEntity);
