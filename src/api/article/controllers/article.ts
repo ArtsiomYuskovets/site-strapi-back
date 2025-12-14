@@ -453,24 +453,53 @@ export default factories.createCoreController('api::article.article' as any, ({ 
   async incrementViews(ctx: any) {
     try {
       const { id } = ctx.params;
-
+      
       const article: any = await strapi.entityService.findOne('api::article.article' as any, id, {
-        fields: ['views'],
+        fields: ['views', 'publishedAt'],
+        publicationState: 'live',
       });
 
       if (!article) {
         return ctx.notFound('Article not found');
       }
 
-      const updatedArticle: any = await strapi.entityService.update('api::article.article' as any, id, {
-        data: {
-          views: (article.views || 0) + 1,
-        },
-      });
 
-      return ctx.send({ views: updatedArticle.views });
-    } catch (err) {
-      ctx.throw(500, err);
+      const newViews = (article.views || 0) + 1;
+
+      // Используем прямой SQL запрос для обновления только views
+      // В SQL мы явно сохраняем текущее значение updated_at (updated_at = updated_at)
+      // Это предотвращает автоматическое обновление updated_at триггерами БД или Strapi
+      const metadata = strapi.db.metadata.get('api::article.article');
+      const tableName = metadata.tableName;
+      
+      // Получаем Knex connection из Strapi
+      const knex = strapi.db.connection;
+      
+      // Выполняем raw SQL запрос, который обновляет только views
+      // В SQL мы явно сохраняем текущее значение updated_at (updated_at = updated_at)
+      // Это предотвращает автоматическое обновление updated_at триггерами БД или Strapi
+      try {
+        await knex.raw(
+          `UPDATE ?? SET views = ?, updated_at = updated_at WHERE id = ?`,
+          [tableName, newViews, id]
+        );
+        strapi.log.info(`[Article Controller] Views updated for article ${id}: ${newViews}`);
+      } catch (sqlError: any) {
+        strapi.log.error(`[Article Controller] SQL update failed, trying entityService:`, sqlError.message);
+        // Fallback: используем entityService, но затем восстанавливаем updatedAt
+        const currentUpdatedAt = article.updatedAt || new Date();
+        await strapi.entityService.update('api::article.article' as any, id, {
+          data: { views: newViews },
+          publicationState: 'live',
+        });
+        // Восстанавливаем updatedAt
+        await knex(tableName).where({ id }).update({ updated_at: currentUpdatedAt });
+      }
+
+      return ctx.send({ views: newViews });
+    } catch (err: any) {
+      strapi.log.error('[Article Controller] Error incrementing views:', err);
+      return ctx.send({ views: 0 });
     }
   },
 
