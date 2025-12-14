@@ -1,0 +1,855 @@
+openapi: 3.0.0
+info:
+  title: News Site API
+  description: API для новостного сайта на базе Strapi
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: support@example.com
+
+servers:
+  - url: http://localhost:8080
+    description: Прокси через Swagger UI сервер (рекомендуется)
+  - url: http://localhost:1337
+    description: Прямое подключение к Strapi (требует настройки CORS)
+  - url: http://localhost:3000/api
+    description: Прокси через Vite dev server
+
+tags:
+  - name: Auth
+    description: Аутентификация и авторизация
+  - name: Articles
+    description: Управление статьями
+  - name: Categories
+    description: Управление категориями
+
+paths:
+  # ==================== AUTH ENDPOINTS ====================
+  /api/auth/local:
+    post:
+      tags:
+        - Auth
+      summary: Вход в систему
+      description: Аутентификация пользователя по email/username и паролю
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginCredentials'
+            example:
+              identifier: user@example.com
+              password: password123
+      responses:
+        '200':
+          description: Успешный вход
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+              example:
+                jwt: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                user:
+                  id: 1
+                  username: john_doe
+                  email: user@example.com
+                  role:
+                    id: 1
+                    name: Editor
+                    type: editor
+        '400':
+          description: Неверные данные
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Неверные учетные данные
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/auth/local/register:
+    post:
+      tags:
+        - Auth
+      summary: Регистрация нового пользователя
+      description: Создание нового аккаунта
+      operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterData'
+            example:
+              username: john_doe
+              email: user@example.com
+              password: password123
+      responses:
+        '200':
+          description: Успешная регистрация
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Ошибка валидации
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/auth/me:
+    get:
+      tags:
+        - Auth
+      summary: Получить текущего пользователя
+      description: Возвращает информацию о текущем аутентифицированном пользователе
+      operationId: getMe
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Информация о пользователе
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          description: Не авторизован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Нет доступа
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ==================== ARTICLES ENDPOINTS ====================
+  /api/articles:
+    get:
+      tags:
+        - Articles
+      summary: Получить список статей
+      description: |
+        Возвращает список статей с поддержкой фильтрации, сортировки и пагинации.
+        
+        **Важно:** 
+        - Для получения полных данных (категория, автор, изображение) обязательно используйте параметр `populate=category,author,coverImage`.
+        - По умолчанию Strapi возвращает только опубликованные статьи (с `publishedAt` не null).
+        - **Фильтры применяются через AND** - если указать несколько фильтров, вернутся только статьи, которые соответствуют ВСЕМ условиям одновременно.
+        - Для получения всех статей оставьте фильтры пустыми и используйте только `populate=category,author,coverImage`.
+      operationId: getArticles
+      parameters:
+        - name: populate
+          in: query
+          description: Поля для загрузки связанных данных (category,author,coverImage). Рекомендуется использовать для получения полных данных.
+          required: false
+          schema:
+            type: string
+            default: category,author,coverImage
+            example: category,author,coverImage
+        - name: filters[category][slug][$eq]
+          in: query
+          description: |
+            Фильтр по slug категории. 
+            **Примечание:** Используйте только если нужно фильтровать по категории. 
+            Если указать вместе с другими фильтрами, вернутся только статьи, соответствующие ВСЕМ условиям.
+          required: false
+          schema:
+            type: string
+            example: technology
+        - name: filters[isFeatured][$eq]
+          in: query
+          description: |
+            Фильтр по избранным статьям (true/false).
+            **Примечание:** Используйте только если нужно фильтровать по избранным. 
+            Если указать вместе с другими фильтрами, вернутся только статьи, соответствующие ВСЕМ условиям.
+          required: false
+          schema:
+            type: boolean
+            example: true
+        - name: filters[tags][$contains]
+          in: query
+          description: |
+            Фильтр по тегам (поиск по подстроке).
+            **Примечание:** Используйте только если нужно фильтровать по тегам. 
+            Если указать вместе с другими фильтрами, вернутся только статьи, соответствующие ВСЕМ условиям.
+          required: false
+          schema:
+            type: string
+            example: news
+        - name: sort
+          in: query
+          description: Сортировка (например, createdAt:desc)
+          required: false
+          schema:
+            type: string
+            example: createdAt:desc
+        - name: pagination[page]
+          in: query
+          description: Номер страницы
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: pagination[pageSize]
+          in: query
+          description: Размер страницы
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+      responses:
+        '200':
+          description: Список статей
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArticleListResponse'
+              example:
+                data:
+                  - id: 1
+                    title: Пример статьи
+                    slug: primer-stati
+                    content: Содержание статьи...
+                    excerpt: Краткое описание
+                    publishedAt: '2025-01-15T10:00:00Z'
+                    views: 100
+                    isFeatured: false
+                    readingTime: 5
+                    tags:
+                      - news
+                    category:
+                      id: 1
+                      name: Технологии
+                      slug: technology
+                    author:
+                      id: 1
+                      username: admin
+                      email: admin@example.com
+                    createdAt: '2025-01-15T10:00:00Z'
+                    updatedAt: '2025-01-15T10:00:00Z'
+                meta:
+                  pagination:
+                    page: 1
+                    pageSize: 10
+                    pageCount: 1
+                    total: 1
+        '400':
+          description: Ошибка в параметрах запроса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    post:
+      tags:
+        - Articles
+      summary: Создать новую статью
+      description: Создание новой статьи (требуется авторизация)
+      operationId: createArticle
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - data
+              properties:
+                data:
+                  $ref: '#/components/schemas/ArticleInput'
+            example:
+              data:
+                title: Новая статья
+                slug: novaya-statya
+                content: Содержание статьи...
+                excerpt: Краткое описание
+                isFeatured: false
+                readingTime: 5
+                tags:
+                  - news
+                  - technology
+      responses:
+        '200':
+          description: Статья создана
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Article'
+        '400':
+          description: Ошибка валидации
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Не авторизован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/articles/{id}:
+    get:
+      tags:
+        - Articles
+      summary: Получить статью по ID
+      description: Возвращает детальную информацию о статье
+      operationId: getArticle
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID статьи
+          schema:
+            type: integer
+            example: 1
+        - name: populate
+          in: query
+          description: Поля для загрузки связанных данных
+          required: false
+          schema:
+            type: string
+            default: category,author,coverImage
+      responses:
+        '200':
+          description: Статья найдена
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Article'
+        '404':
+          description: Статья не найдена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    put:
+      tags:
+        - Articles
+      summary: Обновить статью
+      description: Обновление существующей статьи (требуется авторизация)
+      operationId: updateArticle
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID статьи
+          schema:
+            type: integer
+            example: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - data
+              properties:
+                data:
+                  $ref: '#/components/schemas/ArticleInput'
+      responses:
+        '200':
+          description: Статья обновлена
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Article'
+        '400':
+          description: Ошибка валидации
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Не авторизован
+        '403':
+          description: Нет прав на редактирование
+        '404':
+          description: Статья не найдена
+
+    delete:
+      tags:
+        - Articles
+      summary: Удалить статью
+      description: Удаление статьи (требуется авторизация и роль editor)
+      operationId: deleteArticle
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID статьи
+          schema:
+            type: integer
+            example: 1
+      responses:
+        '200':
+          description: Статья удалена
+        '401':
+          description: Не авторизован
+        '403':
+          description: Нет прав на удаление (требуется роль editor)
+        '404':
+          description: Статья не найдена
+
+  /api/articles/featured:
+    get:
+      tags:
+        - Articles
+      summary: Получить избранные статьи
+      description: Возвращает список избранных статей
+      operationId: getFeaturedArticles
+      parameters:
+        - name: populate
+          in: query
+          description: Поля для загрузки связанных данных
+          required: false
+          schema:
+            type: string
+            default: category,author,coverImage
+      responses:
+        '200':
+          description: Список избранных статей
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArticleListResponse'
+
+  /api/articles/{id}/publish:
+    post:
+      tags:
+        - Articles
+      summary: Опубликовать статью
+      description: Публикация статьи (требуется авторизация)
+      operationId: publishArticle
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID статьи
+          schema:
+            type: integer
+            example: 1
+      responses:
+        '200':
+          description: Статья опубликована
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Article'
+        '401':
+          description: Не авторизован
+        '404':
+          description: Статья не найдена
+
+  /api/articles/{id}/view:
+    post:
+      tags:
+        - Articles
+      summary: Увеличить просмотры статьи
+      description: |
+        Увеличивает счетчик просмотров статьи на 1. 
+        
+        **Важно:** Это публичный endpoint, но требует настройки permissions в Strapi Admin для роли "Public".
+        См. инструкцию в файле PERMISSIONS_SETUP.md
+      operationId: incrementViews
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID статьи
+          schema:
+            type: integer
+            example: 1
+      responses:
+        '200':
+          description: Просмотры увеличены
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  views:
+                    type: integer
+                    example: 101
+              example:
+                views: 101
+        '403':
+          description: |
+            Доступ запрещен. Необходимо настроить permissions в Strapi Admin:
+            Settings → Users & Permissions Plugin → Roles → Public → Article → incrementViews → POST
+        '404':
+          description: Статья не найдена
+
+  # ==================== CATEGORIES ENDPOINTS ====================
+  /api/categories:
+    get:
+      tags:
+        - Categories
+      summary: Получить список категорий
+      description: Возвращает список всех категорий
+      operationId: getCategories
+      parameters:
+        - name: populate
+          in: query
+          description: Поля для загрузки связанных данных
+          required: false
+          schema:
+            type: string
+            example: '*'
+      responses:
+        '200':
+          description: Список категорий
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryListResponse'
+        '401':
+          description: Не авторизован (если категории защищены)
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT токен полученный при входе
+
+  schemas:
+    # User schemas
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        username:
+          type: string
+          example: john_doe
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        role:
+          $ref: '#/components/schemas/Role'
+      required:
+        - id
+        - username
+        - email
+
+    Role:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: Editor
+        type:
+          type: string
+          example: editor
+
+    # Auth schemas
+    LoginCredentials:
+      type: object
+      required:
+        - identifier
+        - password
+      properties:
+        identifier:
+          type: string
+          description: Email или имя пользователя
+          example: user@example.com
+        password:
+          type: string
+          format: password
+          example: password123
+
+    RegisterData:
+      type: object
+      required:
+        - username
+        - email
+        - password
+      properties:
+        username:
+          type: string
+          minLength: 3
+          example: john_doe
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        password:
+          type: string
+          format: password
+          minLength: 6
+          example: password123
+
+    AuthResponse:
+      type: object
+      properties:
+        jwt:
+          type: string
+          description: JWT токен для авторизации
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        user:
+          $ref: '#/components/schemas/User'
+      required:
+        - jwt
+        - user
+
+    # Article schemas
+    Article:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        title:
+          type: string
+          example: Заголовок статьи
+        slug:
+          type: string
+          example: zagolovok-stati
+        content:
+          type: string
+          example: Полное содержание статьи...
+        excerpt:
+          type: string
+          example: Краткое описание статьи
+        publishedAt:
+          type: string
+          format: date-time
+          nullable: true
+          example: '2025-01-15T10:00:00Z'
+        views:
+          type: integer
+          example: 150
+        isFeatured:
+          type: boolean
+          example: false
+        readingTime:
+          type: integer
+          description: Время чтения в минутах
+          example: 5
+        tags:
+          type: array
+          items:
+            type: string
+          example:
+            - news
+            - technology
+        coverImage:
+          $ref: '#/components/schemas/CoverImage'
+        category:
+          $ref: '#/components/schemas/Category'
+        author:
+          $ref: '#/components/schemas/User'
+        createdAt:
+          type: string
+          format: date-time
+          example: '2025-01-15T10:00:00Z'
+        updatedAt:
+          type: string
+          format: date-time
+          example: '2025-01-15T10:00:00Z'
+      required:
+        - id
+        - title
+        - slug
+        - content
+        - excerpt
+        - views
+        - isFeatured
+        - readingTime
+        - tags
+        - createdAt
+        - updatedAt
+
+    ArticleInput:
+      type: object
+      properties:
+        title:
+          type: string
+          example: Заголовок статьи
+        slug:
+          type: string
+          example: zagolovok-stati
+        content:
+          type: string
+          example: Полное содержание статьи...
+        excerpt:
+          type: string
+          example: Краткое описание статьи
+        isFeatured:
+          type: boolean
+          example: false
+        readingTime:
+          type: integer
+          example: 5
+        tags:
+          type: array
+          items:
+            type: string
+          example:
+            - news
+            - technology
+        category:
+          type: integer
+          description: ID категории
+          example: 1
+      required:
+        - title
+        - slug
+        - content
+        - excerpt
+
+    CoverImage:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        url:
+          type: string
+          format: uri
+          example: /uploads/image.jpg
+        alternativeText:
+          type: string
+          nullable: true
+          example: Описание изображения
+
+    ArticleListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Article'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+      required:
+        - data
+        - meta
+
+    # Category schemas
+    Category:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: Технологии
+        slug:
+          type: string
+          example: technology
+        createdAt:
+          type: string
+          format: date-time
+          example: '2025-01-15T10:00:00Z'
+        updatedAt:
+          type: string
+          format: date-time
+          example: '2025-01-15T10:00:00Z'
+      required:
+        - id
+        - name
+        - slug
+        - createdAt
+        - updatedAt
+
+    CategoryListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Category'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+      required:
+        - data
+        - meta
+
+    # Common schemas
+    PaginationMeta:
+      type: object
+      properties:
+        pagination:
+          type: object
+          properties:
+            page:
+              type: integer
+              example: 1
+            pageSize:
+              type: integer
+              example: 10
+            pageCount:
+              type: integer
+              example: 5
+            total:
+              type: integer
+              example: 50
+          required:
+            - page
+            - pageSize
+            - pageCount
+            - total
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            status:
+              type: integer
+              example: 400
+            name:
+              type: string
+              example: ValidationError
+            message:
+              type: string
+              example: Ошибка валидации данных
+            details:
+              type: object
+      required:
+        - error
+
