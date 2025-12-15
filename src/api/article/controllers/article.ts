@@ -22,42 +22,12 @@ export default factories.createCoreController('api::article.article' as any, ({ 
     const user = ctx.state.user;
     const isEditor = user?.role?.type === 'editor';
     
-    const findOptions: any = {
-      populate,
-    };
-    
     const filters: any = { ...query.filters };
     
-    if (!isEditor) {
-      findOptions.publicationState = 'live';
-    } else {
-      findOptions.publicationState = 'preview';
-    }
-    
-    findOptions.filters = filters;
-    
-    if (query.sort) {
-      findOptions.sort = query.sort;
-    }
-    
-    if (query.pagination) {
-      findOptions.pagination = query.pagination;
-    }
-    
-    strapi.log.info(`[Articles Find] Request publicationState: ${findOptions.publicationState || 'not set'}, isEditor: ${isEditor}, user: ${user?.id || 'none'}`);
-    strapi.log.info(`[Articles Find] Find options: ${JSON.stringify({ publicationState: findOptions.publicationState, hasFilters: !!findOptions.filters, sort: findOptions.sort, pagination: findOptions.pagination }, null, 2)}`);
-    
-    strapi.log.info(`[Articles Find] ===== BEFORE QUERY =====`);
-    strapi.log.info(`[Articles Find] publicationState: ${findOptions.publicationState || 'NOT SET'}`);
-    strapi.log.info(`[Articles Find] isEditor: ${isEditor}`);
-    strapi.log.info(`[Articles Find] user: ${user?.id || 'none'}`);
-    
-    let entities: any[] = [];
-    
-    if (!isEditor) {
-      const documentService = strapi.documents('api::article.article');
-      
-      try {
+    try {
+      if (!isEditor) {
+        const documentService = strapi.documents('api::article.article');
+        
         const documents: any = await documentService.findMany({
           filters: filters,
           sort: query.sort,
@@ -66,67 +36,64 @@ export default factories.createCoreController('api::article.article' as any, ({ 
           populate,
         } as any);
         
-        const documentsArray = Array.isArray(documents) ? documents : (documents?.results || []);
-        strapi.log.info(`[Articles Find] documentService.findMany returned ${documentsArray.length} published documents`);
-        
-        if (documentsArray.length > 0) {
-          const firstDoc = documentsArray[0];
-          strapi.log.info(`[Articles Find] First document keys: ${Object.keys(firstDoc).join(', ')}`);
-          strapi.log.info(`[Articles Find] First document sample: id=${firstDoc?.id}, documentId=${firstDoc?.documentId}, title=${firstDoc?.title}, hasAuthor=${!!firstDoc?.author}, hasCategory=${!!firstDoc?.category}`);
+        if (Array.isArray(documents)) {
+          const sanitizedEntities = await this.sanitizeOutput(documents, ctx);
+          return this.transformResponse(sanitizedEntities);
+        } else {
+          const { data, meta } = documents;
           
-          for (const doc of documentsArray) {
-            if (doc && (doc.id || doc.documentId)) {
-              if (doc.author || doc.category || doc.coverImage) {
-                strapi.log.info(`[Articles Find] Document already has populated fields, using directly: id=${doc.id}, documentId=${doc.documentId}`);
-                entities.push(doc);
-              } else {
-                const docId = doc.id || doc.documentId;
-                strapi.log.info(`[Articles Find] Document needs populate, loading via entityService: id=${docId}`);
-                try {
-                  const entity = await entityService.findOne('api::article.article' as any, docId, {
-                    populate,
-                    publicationState: 'live',
-                  });
-                  if (entity) {
-                    entities.push(entity);
-                    strapi.log.info(`[Articles Find] Successfully loaded: id=${entity.id}, documentId=${entity.documentId}, title="${entity.title}"`);
-                  } else {
-                    strapi.log.warn(`[Articles Find] entityService.findOne returned null for id=${docId}`);
+          if (data && data.length > 0) {
+            const entities = [];
+            for (const doc of data) {
+              if (doc && (doc.id || doc.documentId)) {
+                if (doc.author || doc.category || doc.coverImage) {
+                  entities.push(doc);
+                } else {
+                  const docId = doc.id || doc.documentId;
+                  try {
+                    const entity = await entityService.findOne('api::article.article' as any, docId, {
+                      populate,
+                      publicationState: 'live',
+                    });
+                    if (entity) {
+                      entities.push(entity);
+                    }
+                  } catch (err: any) {
+                    strapi.log.error(`[Articles Find] Failed to load entity for id=${docId}: ${err.message}`);
                   }
-                } catch (err: any) {
-                  strapi.log.error(`[Articles Find] Failed to load entity for id=${docId}: ${err.message}`);
                 }
               }
             }
+            
+            const sanitizedEntities = await this.sanitizeOutput(entities, ctx);
+            return this.transformResponse(sanitizedEntities, meta);
           }
           
-          strapi.log.info(`[Articles Find] Successfully processed ${entities.length} out of ${documentsArray.length} documents`);
+          const sanitizedEntities = await this.sanitizeOutput(data || [], ctx);
+          return this.transformResponse(sanitizedEntities, meta);
         }
+      } else {
+        const documentService = strapi.documents('api::article.article');
         
-        if (user) {
-          try {
-            strapi.log.info(`[Articles Find] Loading draft articles for author ${user.id}`);
-            const draftDocuments: any = await documentService.findMany({
-              filters: {
-                ...filters,
-                author: { id: { $eq: user.id } },
-              },
-              sort: query.sort,
-              status: 'draft',
-              populate,
-            } as any);
-            
-            const draftArray = Array.isArray(draftDocuments) ? draftDocuments : (draftDocuments?.results || []);
-            strapi.log.info(`[Articles Find] Found ${draftArray.length} draft articles for author ${user.id}`);
-            
-            for (const doc of draftArray) {
+        const allDocuments: any = await documentService.findMany({
+          filters: filters,
+          sort: query.sort,
+          pagination: query.pagination,
+          populate,
+        } as any);
+        
+        if (Array.isArray(allDocuments)) {
+          const sanitizedEntities = await this.sanitizeOutput(allDocuments, ctx);
+          return this.transformResponse(sanitizedEntities);
+        } else {
+          const { data, meta } = allDocuments;
+          
+          if (data && data.length > 0) {
+            const entities = [];
+            for (const doc of data) {
               if (doc && (doc.id || doc.documentId)) {
                 if (doc.author || doc.category || doc.coverImage) {
-                  const exists = entities.some((e: any) => (e.id === doc.id || e.documentId === doc.documentId));
-                  if (!exists) {
-                    entities.push(doc);
-                    strapi.log.info(`[Articles Find] Added draft article: id=${doc.id}, documentId=${doc.documentId}, title="${doc.title}"`);
-                  }
+                  entities.push(doc);
                 } else {
                   const docId = doc.id || doc.documentId;
                   try {
@@ -135,96 +102,45 @@ export default factories.createCoreController('api::article.article' as any, ({ 
                       publicationState: 'preview',
                     });
                     if (entity) {
-                      const exists = entities.some((e: any) => (e.id === entity.id || e.documentId === entity.documentId));
-                      if (!exists) {
-                        entities.push(entity);
-                        strapi.log.info(`[Articles Find] Added draft article: id=${entity.id}, documentId=${entity.documentId}, title="${entity.title}"`);
-                      }
+                      entities.push(entity);
                     }
                   } catch (err: any) {
-                    strapi.log.error(`[Articles Find] Failed to load draft entity for id=${docId}: ${err.message}`);
+                    strapi.log.error(`[Articles Find] Failed to load entity for id=${docId}: ${err.message}`);
                   }
                 }
               }
             }
             
-            strapi.log.info(`[Articles Find] Total articles after adding drafts: ${entities.length}`);
-          } catch (err: any) {
-            strapi.log.error(`[Articles Find] Error loading draft articles: ${err.message}`);
+            const sanitizedEntities = await this.sanitizeOutput(entities, ctx);
+            return this.transformResponse(sanitizedEntities, meta);
           }
+          
+          const sanitizedEntities = await this.sanitizeOutput(data || [], ctx);
+          return this.transformResponse(sanitizedEntities, meta);
         }
-      } catch (err: any) {
-        strapi.log.error(`[Articles Find] documentService.findMany error: ${err.message}`);
-        strapi.log.error(`[Articles Find] Error stack: ${err.stack}`);
-        strapi.log.info(`[Articles Find] Falling back to entityService with publicationState filter`);
-        entities = await entityService.findMany('api::article.article' as any, findOptions) as any[];
       }
-    } else {
-      strapi.log.info(`[Articles Find] Editor mode - loading all articles (published + drafts)`);
-      const documentService = strapi.documents('api::article.article');
+    } catch (err: any) {
+      strapi.log.error(`[Articles Find] Error: ${err.message}`);
       
-      try {
-        const allDocuments: any = await documentService.findMany({
-          filters: filters,
-          sort: query.sort,
-          pagination: query.pagination,
-          populate,
-        } as any);
-        
-        const documentsArray = Array.isArray(allDocuments) ? allDocuments : (allDocuments?.results || []);
-        strapi.log.info(`[Articles Find] documentService.findMany returned ${documentsArray.length} documents for editor`);
-        
-        if (documentsArray.length > 0) {
-          for (const doc of documentsArray) {
-            if (doc && (doc.id || doc.documentId)) {
-              if (doc.author || doc.category || doc.coverImage) {
-                entities.push(doc);
-              } else {
-                const docId = doc.id || doc.documentId;
-                try {
-                  const entity = await entityService.findOne('api::article.article' as any, docId, {
-                    populate,
-                    publicationState: 'preview',
-                  });
-                  if (entity) {
-                    entities.push(entity);
-                  }
-                } catch (err: any) {
-                  strapi.log.error(`[Articles Find] Failed to load entity for id=${docId}: ${err.message}`);
-                }
-              }
-            }
-          }
-        }
-      } catch (err: any) {
-        strapi.log.error(`[Articles Find] documentService.findMany error for editor: ${err.message}`);
-        strapi.log.info(`[Articles Find] Falling back to entityService with preview`);
-        entities = await entityService.findMany('api::article.article' as any, {
-          ...findOptions,
-          publicationState: 'preview',
-        }) as any[];
+      const findOptions: any = {
+        populate,
+        filters,
+        sort: query.sort,
+        pagination: query.pagination,
+        publicationState: isEditor ? 'preview' : 'live',
+      };
+      
+      const result = await entityService.findMany('api::article.article' as any, findOptions);
+      
+      if (Array.isArray(result)) {
+        const sanitizedEntities = await this.sanitizeOutput(result, ctx);
+        return this.transformResponse(sanitizedEntities);
+      } else {
+        const { data, meta } = result;
+        const sanitizedEntities = await this.sanitizeOutput(data, ctx);
+        return this.transformResponse(sanitizedEntities, meta);
       }
     }
-    
-    strapi.log.info(`[Articles Find] ===== AFTER QUERY =====`);
-    strapi.log.info(`[Articles Find] Total articles returned: ${entities.length}`);
-    
-    if (Array.isArray(entities) && entities.length > 0) {
-      entities.forEach((article: any, index: number) => {
-        strapi.log.info(`[Articles Find] Article ${index + 1}: id=${article.id}, documentId=${article.documentId}, title="${article.title}", publishedAt=${article.publishedAt}`);
-      });
-    }
-
-    const sanitizedEntities = await this.sanitizeOutput(entities, ctx);
-    
-    strapi.log.info(`[Articles Find] After sanitize: ${Array.isArray(sanitizedEntities) ? sanitizedEntities.length : 0} articles`);
-    if (Array.isArray(sanitizedEntities) && sanitizedEntities.length > 0) {
-      sanitizedEntities.forEach((article: any, index: number) => {
-        strapi.log.info(`[Articles Find] Sanitized article ${index + 1}: id=${article.id}, documentId=${article.documentId}, publishedAt=${article.publishedAt}`);
-      });
-    }
-    
-    return this.transformResponse(sanitizedEntities);
   },
 
   async findOne(ctx: any) {
